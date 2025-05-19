@@ -2,10 +2,8 @@ import numpy as np
 import gmsh
 import math
 from parameters import mesh, num
+import matplotlib.pyplot as plt
 
-
-dim = num.dim
-Nfaces = dim+1
 PolyDeg = num.PolyDeg
 Nb = num.Nb
 N = num.N
@@ -21,7 +19,6 @@ types = {"Line 2": ("line2", [0, 1], [1, 0]),
          "Tetrahedron 4": ("tetrahedron4", [0, 2, 1, 3]),
          "Tetrahedron 10": ("tetrahedron10", [0, 6, 2, 5, 1, 4, 7, 8, 9, 3])}
 
-
 def read_mesh():
     gmsh.initialize()
     gmsh.option.setNumber("General.Terminal", 1)
@@ -34,13 +31,23 @@ def read_mesh():
     numNodes = len(nodeTags)
     print("Found " + str(numNodes) + " nodes")
 
+    entities = gmsh.model.getEntities()
+    numDim=0
+    for e in entities:
+        if (e[0]>numDim):
+            numDim=e[0]
+
+    if (numDim != num.dim):
+        print("ERROR: mesh dimension: not the dimension defined in parapmeters.py ")
+        exit
+
     if numNodes*numDim != len(nodeCoords):
         print("ERROR: node coordinates: invalid size of array")
         exit
 
     # Resize the node coordinates and store them with the tags
     nodes = {}
-    nodes["coordinates"] = nodeCoords.reshape(numNodes, numDim)
+    nodes["coordinates"] = nodeCoords.reshape(numNodes, 3)
     nodes["tags"] = nodeTags
     tag_to_index = np.zeros(int(np.max(nodeTags))+1, dtype=int)
     tag_to_index[nodeTags] = np.arange(len(nodeTags))
@@ -65,16 +72,30 @@ def read_mesh():
                 elements[label]["nodes"] = elemNodeTags[n].reshape(Ne, len(nn))[:, nn]
                 elements[label]["tags"] = tags-1
                 elements[label]["groups"] = np.zeros_like(tags, dtype=int)
-                if (label=='line2'):
-                    elements[label]["neigh_element_type"] = np.chararray((len(tags),1), itemsize=10)
-                    elements[label]["neigh_element_type"][:] = 'triangle3'
-                    elements[label]["neigh_element"] = np.zeros_like(tags, dtype=int)
-                    elements[label]["neigh_side"] = np.zeros_like(tags, dtype=int)
-                else:
-                    elements[label]["neigh_element_type"] = np.chararray((len(tags),3), itemsize=10)
-                    elements[label]["neigh_element_type"][:] = 'triangle3'
-                    elements[label]["neigh_element"] = np.zeros((len(tags),3), dtype=int)
-                    elements[label]["neigh_side"] = np.zeros((len(tags),3), dtype=int)
+                if (numDim==2):
+                    ########## The element on the border are of type 'line2', and are the only elements that have one neighbourg
+                    ########## The rest of elements ('triangles3') have three neighbourgs, independent of its kind ('line2' or 'triangle3')
+                    if (label=='line2'):
+                        elements[label]["neigh_element_type"] = np.chararray((len(tags),1), itemsize=10)
+                        elements[label]["neigh_element_type"][:] = 'triangle3'
+                        elements[label]["neigh_element"] = np.zeros_like(tags, dtype=int)
+                        elements[label]["neigh_side"] = np.zeros_like(tags, dtype=int)
+                    else:
+                        elements[label]["neigh_element_type"] = np.chararray((len(tags),3), itemsize=10)
+                        elements[label]["neigh_element_type"][:] = 'triangle3'
+                        elements[label]["neigh_element"] = np.zeros((len(tags),3), dtype=int)
+                        elements[label]["neigh_side"] = np.zeros((len(tags),3), dtype=int)
+                if (numDim==3):
+                    if (label=='triangle3'):
+                        elements[label]["neigh_element_type"] = np.chararray((len(tags),1), itemsize=10)
+                        elements[label]["neigh_element_type"][:] = 'tetrahedron4'
+                        elements[label]["neigh_element"] = np.zeros_like(tags, dtype=int)
+                        elements[label]["neigh_side"] = np.zeros_like(tags, dtype=int)
+                    else:
+                        elements[label]["neigh_element_type"] = np.chararray((len(tags),4), itemsize=10)
+                        elements[label]["neigh_element_type"][:] = 'tetrahedron4'
+                        elements[label]["neigh_element"] = np.zeros((len(tags),4), dtype=int)
+                        elements[label]["neigh_side"] = np.zeros((len(tags),4), dtype=int)
 
     # Go through the list of entities to identify the groups
     entities = gmsh.model.getEntities()
@@ -105,34 +126,8 @@ def read_mesh():
 
     gmsh.clear()
     gmsh.finalize()
-
+    
     return(nodes, elements, Ne)
-
-def find_pos(s_1,s_2):
-    if(s_1[0]!=s_2[0]):
-        if(s_1[0]!=s_2[1]):
-            if(s_1[1]==s_2[1]):
-                indj = 1
-                signj = -1
-            else:
-                indj = 2
-                signj = 1
-        else:
-            if(s_1[1]==s_2[0]):
-                indj = 0
-                signj = -1
-            else:
-                indj = 1
-                signj = 1
-    else:
-        if(s_1[1]==s_2[1]):
-            indj = 0
-            signj = 1
-        else:
-            indj = 2
-            signj = -1
-
-    return(indj, signj)
 
 # Find neighbouring elments
 def neighbours(elements):
@@ -145,10 +140,10 @@ def neighbours(elements):
         except:
             ind = ind
     ind = ind[-2::]
-    n_0=len(elements[types[keys[ind[0]]][0]]['nodes'])
-    n_1=len(elements[types[keys[ind[1]]][0]]['nodes'])
-    m_1=len(elements[types[keys[ind[1]]][0]]['nodes'][0])
-    if(dim==2):
+    n_0=len(elements[types[keys[ind[0]]][0]]['nodes']) ## number elements at the border (dim=2) / external faces (dim=3)
+    n_1=len(elements[types[keys[ind[1]]][0]]['nodes'])  ##number of elements in the surface (dim=2) / volume (dim=3)
+    m_1=len(elements[types[keys[ind[1]]][0]]['nodes'][0]) ## number of nodes that define each triangle3 (dim=2) / tetrahedron4 (dim=3)
+    if(num.dim==2):
         for i in range(n_0):
             for j in range(n_1):
                 s_1 = elements[types[keys[ind[0]]][0]]['nodes'][i]
@@ -156,6 +151,54 @@ def neighbours(elements):
                 if( len(set.intersection(set(s_1),set(s_2)))==m_1-1):
                     indj, signj = find_pos(s_1,s_2)
                     elements[types[keys[ind[1]]][0]]['neigh_element_type'][j][indj]='line2'
+                    elements[types[keys[ind[0]]][0]]['neigh_element'][i][0]=j
+                    elements[types[keys[ind[1]]][0]]['neigh_element'][j][indj]=i
+                    elements[types[keys[ind[0]]][0]]['neigh_side'][i][0]=(indj+1)*signj
+                    elements[types[keys[ind[1]]][0]]['neigh_side'][j][indj]=signj
+        
+        for i in range(n_1):
+            for j in range(i+1,n_1):
+                s_1 = elements[types[keys[ind[1]]][0]]['nodes'][i]
+                s_2 = elements[types[keys[ind[1]]][0]]['nodes'][j]
+                inters = set.intersection(set(s_1),set(s_2))
+                if( len(inters)==m_1-1):
+                    inters=np.int64(list(inters))
+                    indj, signj = find_pos(inters,s_2)
+                    if(inters[0]!=s_1[0]):
+                        if(inters[0]!=s_1[1]):
+                            if(inters[1]==s_1[1]):
+                                indi = 1
+                                signi = -1
+                            else:
+                                indi = 2
+                                signi = 1
+                        else:
+                            if(inters[1]==s_1[0]):
+                                indi = 0
+                                signi = -1
+                            else:
+                                indi = 1
+                                signi = 1
+                    else:
+                        if(inters[1]==s_1[1]):
+                            indi = 0
+                            signi = 1
+                        else:
+                            indi = 2
+                            signi = -1
+                    elements[types[keys[ind[1]]][0]]['neigh_element'][j][indj]=i
+                    elements[types[keys[ind[1]]][0]]['neigh_side'][j][indj]=(indi+1)*signj*signi
+                    elements[types[keys[ind[1]]][0]]['neigh_element'][i][indi]=j
+                    elements[types[keys[ind[1]]][0]]['neigh_side'][i][indi]=(indj+1)*signj*signi
+    
+    elif(num.dim==3):
+        for i in range(n_0):
+            for j in range(n_1):
+                s_1 = elements[types[keys[ind[0]]][0]]['nodes'][i]
+                s_2 = elements[types[keys[ind[1]]][0]]['nodes'][j]
+                if( len(set.intersection(set(s_1),set(s_2)))==m_1-1):
+                    indj, signj = find_pos(s_1,s_2)
+                    elements[types[keys[ind[1]]][0]]['neigh_element_type'][j][indj]='triangle3'
                     elements[types[keys[ind[0]]][0]]['neigh_element'][i][0]=j
                     elements[types[keys[ind[1]]][0]]['neigh_element'][j][indj]=i
                     elements[types[keys[ind[0]]][0]]['neigh_side'][i][0]=(indj+1)*signj
@@ -428,6 +471,7 @@ def Nodes3D(PolyDeg):
 
     x = x[:,np.newaxis]
     y = y[:,np.newaxis]
+    z = z[:,np.newaxis]
     return (x,y,z)
 
 def xyztorst(X, Y, Z):
@@ -435,16 +479,16 @@ def xyztorst(X, Y, Z):
     # function [r,s,t] = xyztorst(x, y, z)
     # Purpose : Transfer from (x,y,z) in equilateral tetrahedron
     #           to (r,s,t) coordinates in standard tetrahedron
-
     v1 = np.transpose([-1,-1/math.sqrt(3), -1/math.sqrt(6)])
     v2 = np.transpose([ 1,-1/math.sqrt(3), -1/math.sqrt(6)])
     v3 = np.transpose([ 0, 2/math.sqrt(3), -1/math.sqrt(6)])
     v4 = np.transpose([ 0, 0/math.sqrt(3),  3/math.sqrt(6)])
 
     # back out right tet nodes
-    rhs = [np.transpose(X),np.transpose(Y),np.transpose(Z)] - 0.5*(v2+v3+v4-v1)*np.ones((1,len(X)))
-    A = [0.5*(v2-v1),0.5*(v3-v1),0.5*(v4-v1)]
-    RST = np.dot(A,np.transpose(rhs))
+    a = 0.5*(v2+v3+v4-v1)
+    rhs = np.squeeze([np.transpose(X),np.transpose(Y),np.transpose(Z)]) - np.tile(a.reshape(3, 1), (1,len(X)))
+    A = np.transpose([0.5*(v2-v1),0.5*(v3-v1),0.5*(v4-v1)])
+    RST = np.linalg.solve(A, rhs)
     r = np.transpose(RST[0,:])
     s = np.transpose(RST[1,:])
     t = np.transpose(RST[2,:])
@@ -470,51 +514,116 @@ def rsttoabc(r,s,t):
             b[n] = 2*(1+s[n])/(1-t[n])-1
         else:
             b[n] = -1
-    c = t
+    c[:,0] = t
 
     return (a,b,c)
 
+def rsttoe(r, s, t, v1x, v1y, v1z, v2x, v2y, v2z, v3x, v3y, v3z, v4x, v4y, v4z):
+    x = 0.5*(-(1+r+s+t)*v1x+(1+r)*v2x+(1+s)*v3x+(1+t)*v4x)
+    y = 0.5*(-(1+r+s+t)*v1y+(1+r)*v2y+(1+s)*v3y+(1+t)*v4y)
+    z = 0.5*(-(1+r+s+t)*v1z+(1+r)*v2z+(1+s)*v3z+(1+t)*v4z)
+    return(x,y,z)
+
+def xyztoabc(X, Y, Z, v1x, v1y, v1z, v2x, v2y, v2z, v3x, v3y, v3z, v4x, v4y, v4z):
+    target_verts = np.array([[-1, -0.5773503, -0.4082483],[ 1, -0.5773503, -0.4082483],[ 0,  1.154701 , -0.4082483],[ 0,  0.       ,  1.224745 ]])
+    T = np.array([[v2x-v1x,v2y-v1y,v2z-v1z], [v3x-v1x,v3y-v1y,v3z-v1z], [v4x-v1x,v4y-v1y,v4z-v1z]]).T  # Matriz 3x3
+    v = [X-v1x, Y-v1y, Z-v1z]
+    bary = np.linalg.solve(T, v)
+    l1, l2, l3 = bary
+    l0 = 1 - l1 - l2 - l3
+    a,b,c = np.dot(np.array([l0, l1, l2, l3]), target_verts)
+    return(a,b,c)
+
+def find_bary(X, Y, Z, v1x, v1y, v1z, v2x, v2y, v2z, v3x, v3y, v3z, v4x, v4y, v4z):
+    L1 = -np.ones((len(v1x), len(X)))
+    L2 = -np.ones((len(v1x), len(X)))
+    L3 = -np.ones((len(v1x), len(X)))
+    T = np.array([[v2x-v1x,v2y-v1y,v2z-v1z], [v3x-v1x,v3y-v1y,v3z-v1z], [v4x-v1x,v4y-v1y,v4z-v1z]]).T  # Matriz 3x3
+    for i in range(len(v1x)):
+        v = np.array([X-v1x[i], Y-v1y[i], Z-v1z[i]])
+        bary = np.linalg.solve(T[i], v) ####mal fait la division
+        l1, l2, l3 = bary
+        L1[i,:] = l1
+        L2[i,:] = l2
+        L3[i,:] = l3
+    L0 = np.ones(np.shape(L1)) - L1 - L2 - L3
+    return(L0, L1, L2, L3)
+
+def find_pos(s_1,s_2):
+    if(s_1[0]!=s_2[0]):
+        if(s_1[0]!=s_2[1]):
+            if(s_1[1]==s_2[1]):
+                indj = 1
+                signj = -1
+            else:
+                indj = 2
+                signj = 1
+        else:
+            if(s_1[1]==s_2[0]):
+                indj = 0
+                signj = -1
+            else:
+                indj = 1
+                signj = 1
+    else:
+        if(s_1[1]==s_2[1]):
+            indj = 0
+            signj = 1
+        else:
+            indj = 2
+            signj = -1
+    return(indj, signj)
+
+def find_face(s,inters):
+    a=set.difference(set(s),set(inters))
+    if (a==s[0]):
+        face=1
+    elif (a==s[0]):
+        face=2
+    elif (a==s[0]):
+        face=0
+    elif (a==s[0]):
+        face=3
+    else:
+        face=-1
+    return face
+
+def nodes_I2D(PolyDeg):
+    Nb=PolyDeg+1
+    cont = 2*Nb-1
+    diff = Nb-2
+    F1 = list(range(Nb))
+    F2 = [Nb-1]
+    F3 = [0, Nb]
 
 
-################################################################################################
-################################## depending on dimension ######################################
-if (dim==2):
-    def nodes_I(Nb):
-        cont = 2*Nb-1
-        diff = Nb-2
-        F1 = list(range(Nb))
-        F2 = [Nb-1]
-        F3 = [0, Nb]
-
-
-        while (diff>0):
-            F2.append(cont-1)
-            F3.append(cont)
-            cont = cont + diff
-            diff = diff - 1
+    while (diff>0):
         F2.append(cont-1)
-        F3 = F3[::-1]
+        F3.append(cont)
+        cont = cont + diff
+        diff = diff - 1
+    F2.append(cont-1)
+    F3 = F3[::-1]
+    return (F1, F2, F3)
 
-        return (F1, F2, F3)
+def nodes_I3D(PolyDeg):
+    Nt=(PolyDeg+1)*(PolyDeg+2)*(PolyDeg+3)/6
+    F1 = []
+    F2 = []
+    F3 = []
+    F4 = list(range(int((PolyDeg+1)*(PolyDeg+2)/2)))
 
-elif (dim==3):
-    def nodes_I(Nb):
-        cont = 2*Nb-1
-        diff = Nb-2
-        F1 = list(range(Nb))
-        F2 = [Nb-1]
-        F3 = [0, Nb]
+    diff = PolyDeg
+    cont = 0
+    while (diff>1):
+        F1t, F2t, F3t = nodes_I2D(diff)
+        F1.extend([int(x+cont) for x in F1t])
+        F2.extend([int(x+cont) for x in F2t])
+        F3.extend([int(x+cont) for x in F3t])
+        cont = cont+(diff+1)*(diff+2)/2
+        diff = diff-1
+    F1.extend([int(Nt-4),int(Nt-3),int(Nt-1)])
+    F2.extend([int(Nt-3),int(Nt-2),int(Nt-1)])
+    F3.extend([int(Nt-2),int(Nt-4),int(Nt-1)])
+    return (F1, F2, F3, F4)
 
-
-        while (diff>0):
-            F2.append(cont-1)
-            F3.append(cont)
-            cont = cont + diff
-            diff = diff - 1
-        F2.append(cont-1)
-        F3 = F3[::-1]
-
-        return (F1, F2, F3, F3)
-
-else:
-    print('error: dimension not available')
