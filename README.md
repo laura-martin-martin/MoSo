@@ -1,0 +1,21 @@
+! ! WARNING ! !                 Only results in 2D are available               ! ! WARNING ! ! 
+
+Python code conceived for simulating acosutic waves propagation in uniform base flows with the particularity that monopolar source can change its position in time.
+It discretizes the Linearized Euler Equations using the Discontinuous Galerkin Method in time.
+
+VERSIONS
+-------------------------
+Python 3.11.11
+
+
+MESH
+-------------------------
+Mesh generated using GMSH
+There is 2D meshes as well as a 3D mesh in this repository
+
+
+SIMULATIONS
+-------------------------
+Lauch the simulation: $ python .\main.py
+Parameters can be defined in 'parameters.py'
+Results are displayed using the plt.scatter() function in Python
