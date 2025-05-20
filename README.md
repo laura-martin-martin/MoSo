@@ -8,11 +8,11 @@ Some functions are adapted from the MATLAB scripts that accompany the text on No
 VERSIONS
 -------------------------
 Python 3.11.11
-
+GMSH 4.13.1 (24 May 2024) 
 
 MESH
 -------------------------
-Mesh generated using GMSH
+Mesh generated using GMSH. Documentation and .exe available at https://gmsh.info/ .
 There is 2D meshes as well as a 3D mesh in this repository
 
 
